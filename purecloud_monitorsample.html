@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+	<title>Presence Subscription</title>
+	
+	<link href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-WskhaSGFgHYWDcbwN70/dfYBj47jz9qbsMId/iRN3ewGhXQFZCSftd1LZCfmhktB" crossorigin="anonymous">
+
+	<style type="text/css">
+		.row {
+			margin-top: 8px;
+		}
+	</style>
+
+	<script src="https://code.jquery.com/jquery-3.3.1.min.js" integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8=" crossorigin="anonymous"></script>
+	<script src="https://sdk-cdn.mypurecloud.com/javascript/27.0.0/purecloud-platform-client-v2.min.js"></script>
+
+	<script type="text/javascript">
+		const clientId = 'XXXXXXXXXXXXX';
+		const redirectUri = "http://localhost/purecloud/purecloud_monitorsample.html";
+
+
+		// Set purecloud objects
+		const platformClient = require('platformClient');
+		const client = platformClient.ApiClient.instance;
+		const notificationsApi = new platformClient.NotificationsApi();
+        
+		// Set PureCloud settings
+		client.setEnvironment('mypurecloud.jp');
+		client.setPersistSettings(true, 'test_app');
+
+		// Local vars
+		let webSocket=null;
+		let userConversationsCallsTopic = '';
+
+		document.addEventListener("DOMContentLoaded", function (event) {
+			let btnGetSupervisorPariticipantId= document.querySelector('#executeDetailQuery');
+			btnGetSupervisorPariticipantId.addEventListener('click', postConversationDetailQuery);
+
+			let btnMonitor = document.querySelector('#btnMonitor');
+			btnMonitor.addEventListener('click', startMonitoringCall );
+
+
+			client.loginImplicitGrant(clientId, redirectUri)
+				.then( () => {
+					console.log('Logged in');
+					return notificationsApi.postNotificationsChannels();
+				})
+				.then( (channel) => {
+					console.log('channel: ', channel);
+					notificationChannel = channel;
+
+					// Set up web socket
+					webSocket = new WebSocket(notificationChannel.connectUri);
+					webSocket.onmessage = handleNotification;
+
+					// Subscribe to authenticated user's presence
+					txtAgentUserId = document.querySelector('#agentId');
+					userConversationsCallsTopic = `v2.users.${txtAgentUserId.value}.conversations.calls`;
+                    const body = [{ id: userConversationsCallsTopic }];
+                    let result = notificationsApi.putNotificationsChannelSubscriptions(notificationChannel.id, body);
+                    console.log("reesult :", result);
+                    return result;
+					// txtSupervisorId = document.querySelector('#supervisorId');
+					// userConversationsCallsTopic = `v2.users.${txtSupervisorId.value}.conversations.calls`;
+
+					// const body = [{ id: userConversationsCallsTopic }];
+					// return notificationsApi.putNotificationsChannelSubscriptions(notificationChannel.id, body);
+				})
+				.then((channel) => {
+					console.log('Channel subscriptions set successfully');
+				})
+			});
+		
+		var converToDigt2 = (val)=>{
+			let result = "";
+			val = val * 1;
+			result =  0 <= val && val <= 9 ? "0" + val.toString() : val.toString();
+			console.log(result);
+			//alert(result);
+			return  result;
+		};
+		var convertDateToUTC = (paramDate, paramHH, paramMM, paramSS) => {
+			let result;
+			// var date = new Date('2016-04-01 05:00:00+09:00');
+			//                     "2019-02-22 00:00:00+09:00:00"
+			let hh = converToDigt2(paramHH);
+			let mm = converToDigt2(paramMM);
+			let ss = converToDigt2(paramSS);
+			console.log(`hh=${hh}`);
+			console.log(`mm=${mm}`);
+			console.log(`ss=${ss}`);
+
+			let inputDate  = paramDate + " " + converToDigt2(paramHH) + ":" + converToDigt2(paramMM) + ":" + converToDigt2(paramSS) + "+09:00" ;
+			
+			console.log( `inputDate=${inputDate}` ) // 
+			let objDate = new Date(inputDate);
+			//let objDate = new Date(paramDate + "T" + paramHH + ":" + paramMM + ":" + paramSS + "+09:00:00");
+			strDate = objDate.toUTCString(); //"Thu, 21 Feb 2019 15:00:00 GMT"
+			console.log("UTC DATE STRING");
+			console.log(strDate);
+			result = objDate.getUTCFullYear() + "-"  
+					+ converToDigt2(objDate.getUTCMonth()+ 1) + "-"
+					+ converToDigt2(objDate.getUTCDate())  + "T"
+					+ converToDigt2(objDate.getUTCHours()) + ":" 
+					+ converToDigt2(objDate.getUTCMinutes()) + ":" 
+					+ converToDigt2(objDate.getUTCSeconds()) + "Z";  
+
+			console.log("result");
+			console.log(result);
+			
+			return result;
+		};
+        
+
+        var postConversationDetailQuery = ()=>{
+			//setQueryParameter
+			let txtUserId = document.querySelector('#userId').value;
+
+			let fromDate  = document.querySelector('#fromDate').value;
+			let fromHH    = document.querySelector('#fromHH').value;
+			let fromMM    = document.querySelector('#fromMM').value;
+			let fromSS    = document.querySelector('#fromSS').value;
+            console.log("========from========");
+			console.log(fromDate);
+			console.log(fromHH);
+			console.log(fromMM);
+			console.log(fromSS);
+
+			let toDate = document.querySelector('#toDate').value;
+			let toHH   = document.querySelector('#toHH').value;
+			let toMM   = document.querySelector('#toMM').value;
+			let toSS   = document.querySelector('#toSS').value;
+            console.log("========to========");
+			console.log(toDate);
+			console.log(toHH);
+			console.log(toMM);
+			console.log(toSS);
+
+            let order="";
+			let orders = document.querySelectorAll('[name=order]');
+			for(let i=0; i<orders.length; i++){
+				if (orders[i].checked){ order = orders[i].value; break; } 
+			}
+			
+			let utcFromDate = convertDateToUTC(fromDate, fromHH, fromMM, fromSS);
+			let utcToDate   = convertDateToUTC(toDate, toHH, toMM, toSS);
+			let interval = utcFromDate + "/" + utcToDate;
+			console.log(utcFromDate);
+			console.log(utcToDate);
+
+
+            const analyticsApi = new platformClient.AnalyticsApi();
+            let requestQuery = {
+                 "interval": interval,
+                 "userFilters": [
+                        {
+                            "type": "or",
+                            "predicates": [
+                                {
+                                    "dimension": "userId",
+                                    "value": txtUserId
+                                }
+                            ]
+                        }
+                    ],
+                    "paging": {
+                        "pageSize": 10,
+                        "pageNumber": 1
+                    },
+                    "order": order
+                };
+            console.log("========requestQuery=========");
+            console.log(JSON.stringify(requestQuery, null, 2));
+            document.querySelector('#conversationDetailQuery').value = JSON.stringify(requestQuery, null, 2);
+            analyticsApi.postAnalyticsConversationsDetailsQuery(requestQuery)
+                .then((data) => {
+				   console.log("================result==========");
+			       console.log(`postAnalyticsConversationsDetailsQuery success! data: ${JSON.stringify(data, null, 2)}`);
+				   document.querySelector("#resultConversationDetailQuery").value= JSON.stringify(data, null, 2);
+
+				   let conversationId = data["conversations"][0]["conversationId"];
+				   let participants   = data["conversations"][0]["participants"];
+				   let participantId = "";
+				   let userId="";
+				   for(let i=0; i< participants.length ; i++ ){
+					if ( "userId" in participants[i] ){	userId = participants[i]["userId"]; participantId = participants[i]["participantId"]; break; }
+				   }
+				   document.querySelector('#agentConversationId').value = conversationId;
+				   document.querySelector('#agentParicipantId').value = participantId;
+				   document.querySelector('#agentUserId').value = userId;
+
+                })
+                .catch((err) => {
+                    console.log('There was a failure calling postAnalyticsConversationsDetailsQuery');
+                    console.log(JSON.stringify(data, null, 2));
+                });
+        }
+
+		var startMonitoringCall = ()=>{
+			let conversationId = document.querySelector("#agentConversationId").value; // String | conversationId
+			let participantId = document.querySelector("#agentParicipantId").value; // String | conversationId
+			let conversationsApi = new platformClient.ConversationsApi();
+
+			console.log("=============conversationId==============");
+			console.log(conversationId);
+			console.log("=============participantId===============");
+			console.log(participantId);
+
+			conversationsApi.postConversationsCallParticipantMonitor(conversationId, participantId)
+				.then(() => {
+					console.log('postConversationsCallParticipantMonitor returned successfully.');
+					document.querySelector('#resultMonitor').value= 'postConversationsCallParticipantMonitor returned successfully.';
+					alert('postConversationsCallParticipantMonitor returned successfully.');
+				})
+				.catch((err) => {
+					console.log('There was a failure calling postConversationsCallParticipantMonitor');
+					document.querySelector('#resultMonitor').value = 'There was a failure calling postConversationsCallParticipantMonitor'
+					                                           +  "\n" + JSON.stringify(err, null, 2);
+
+					alert('There was a failure calling postConversationsCallParticipantMonitor');
+					console.error(`${JSON.stringify(err, null, 2)}`);
+					console.error(err);
+				});
+		}
+
+		var handleNotification = (message) => {
+						// Parse notification string to a JSON object
+						const notification = JSON.parse(message.data);
+
+						// Discard unwanted notifications
+						if (notification.topicName.toLowerCase() === 'channel.metadata') {
+							// Heartbeat
+							console.info('Ignoring metadata: ', notification);
+							return;
+						} else if (notification.topicName.toLowerCase() !== userConversationsCallsTopic.toLowerCase()) {
+							// Unexpected topic
+							console.warn('Unknown notification: ', notification);
+							return;
+						} else {
+							console.debug('userConversationsCallsTopic notification: ', notification);
+						}
+
+						console.log(notification.eventBody.id);
+						// Log messages
+						$('div#messages').append($('<pre>').text(`${new Date().toLocaleTimeString()} - ${notification.eventBody.id}`));
+		
+		}
+        
+        var createSelectBox = ( id, name, from, to )=>{  
+			document.open();
+			document.write('<select id="'+ id +'"' + 'name="' + name  + '"  class="form-control" >');
+			for(let i=from; i <=to ; i++ ){
+				document.write('<option value="'+ i.toString() +  '">' + i.toString()+ '</option>');
+			}		
+			document.write('</select >');
+			document.close();
+		}
+	</script>
+</head>
+<body>
+	<div class="container">
+		<h1>Monitoring agent sample</h1>
+		<form>
+
+			<label for="agentId">Agent[userId]</label>
+			<input class="form-control" type="text" id="agentId" name="agentId" placeholder="agentId"
+				value="" />
+			<label for="supervisorId">Supervisor[(userId]</label>
+			<input class="form-control" type="text" id="supervisorId" name="supervisorId" placeholder="supervisorId"
+				value="" />
+
+			<h2>ConversationsDetailsQuery - Query Parameter</h2>
+			<div class="form-row">
+				<label for="agentId">AgentのUserID</label>
+				<input class="form-control" type="text" id="userId" name="userId" value="" />
+			</div>
+			
+			<div class="form-row">
+				<!-- from date -->
+				<div class="col">
+					<label for="fromDate">From 年月日</label>
+					<input class="form-control" type="date" id="fromDate" name="fromDate" value="2019-02-22" />
+				</div>
+				<div class="col">
+					<label for="fromHH">From 時</label>
+					<script>
+						createSelectBox("fromHH", "fromHH", 0, 23);
+					</script>
+				</div>
+				<div class="col">
+					<label for="fromMM">From 分</label>
+					<script>
+						createSelectBox("fromMM", "fromMM", 0, 59);
+					</script>
+				</div>
+				<div class="col">
+					<label for="fromSS">From 秒</label>
+					<script>
+						createSelectBox("fromSS", "fromSS", 0, 59);
+					</script>
+				</div>
+				<!-- To date -->
+				<div class="col">
+					<label for="toDate">To 年月日</label>
+					<input class="form-control" type="date" id="toDate" name="toDate" value="2019-02-22" />
+				</div>
+				<div class="col">
+					<label for="toHH">To 時</label>
+					<script>
+						createSelectBox("toHH", "toHH", 0, 23);
+					</script>
+				
+				</div>
+				<div class="col">
+					<label for="toMM">To 分</label>
+					<script>
+						createSelectBox("toMM", "toMM", 0, 59);
+					</script>
+				</div>
+				<div class="col">
+					<label for="toSS">To 秒</label>
+					<script>
+						createSelectBox("toSS", "toSS", 0, 59);
+					</script>
+				</div>
+			</div>
+			
+			<div class="form-row">
+			
+			</div>
+			<div class="form-row">
+				<div class="col">
+					<input type="radio" name="order" value="desc" checked="checked">降順
+					<input type="radio" name="order" value="asc">昇順
+				</div>
+			</div>
+            <br>
+            <button id="executeDetailQuery" type="button" class="btn btn-primary">executeDetailQuery</button>
+
+			<div class="row">
+				<div class="col-sm">
+					<h1>ConversationsDetailsQuery - Query</h1>
+					<textarea class="form-control" id="conversationDetailQuery" rows="10"></textarea>
+				</div>
+			</div>
+			<div class="row">
+				<div class="col-sm">
+					<h1>ConversationsDetailsQuery - Result</h1>
+					<textarea class="form-control" id="resultConversationDetailQuery" rows="10"></textarea>
+				</div>
+			</div>
+
+		</form>
+
+		<form>
+			<h2>Moinitoring API - Query Parameter</h2>
+			<label for="agentConversationId">Agent[userId]</label>
+			<input class="form-control" type="text" id="agentUserId" name="agentUserId" placeholder="" value="" />
+			<label for="agentConversationId">Agent[conversationId]</label>
+			<input class="form-control" type="text" id="agentConversationId" name="agentConversationId" placeholder="" value="" />
+			<label for="supervisorId">Agent[paricipantId]</label>
+			<input class="form-control" type="text" id="agentParicipantId" name="agentParicipantId" placeholder="" value="" />   
+			<button id="btnMonitor" type="button" class="btn btn-primary">monitor</button>
+
+			<div class="row">
+				<div class="col-sm">
+					<h1>Moinitoring API - Result</h1>
+					<textarea class="form-control" id="resultMonitor" rows="3"></textarea>
+				</div>
+			</div>
+
+		</form>
+		<div class="row">
+			<div class="col-sm">
+				<h1>Monitoring agent conversation id</h1>
+				<div id="messages"></div>
+			</div>
+		</div>
+	</div>
+</body>
+</html>
