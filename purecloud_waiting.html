@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Presence Subscription</title>
+	
+	<link href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-WskhaSGFgHYWDcbwN70/dfYBj47jz9qbsMId/iRN3ewGhXQFZCSftd1LZCfmhktB" crossorigin="anonymous">
+
+	<style type="text/css">
+		.row {
+			margin-top: 8px;
+		}
+	</style>
+
+	<script src="https://code.jquery.com/jquery-3.3.1.min.js" integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8=" crossorigin="anonymous"></script>
+	<script src="https://sdk-cdn.mypurecloud.com/javascript/27.0.0/purecloud-platform-client-v2.min.js"></script>
+	<script type="text/javascript">
+		// Auth2
+		const clientId = 'c2fec972-d648-4597-8ded-13198f644dee';
+		const redirectUri = "http://localhost/purecloud/purecloud_waiting.html";
+
+		// Set purecloud objects
+		const platformClient = require('platformClient');
+		const client = platformClient.ApiClient.instance;
+		const notificationsApi = new platformClient.NotificationsApi();
+        
+		// Set PureCloud settings
+		client.setEnvironment('mypurecloud.jp');
+		client.setPersistSettings(true, 'test_app');
+
+		// vars
+		var presences = {};
+		var analyticsQueueObservationsArray = [];
+		var routingQueuesConversationsCalls = '';
+		var routingQueuesConversations = '';
+		var webSocket1 = null;
+		var webSocket2 = null;
+		var notificationChannel, notificationChannel2, notificationChannel3;
+        
+        var ChannelTopicEntityListing = [];
+		var ChannelTopicEntityListing2 = [];
+
+        var intervals  =  [0,0]; //インターバルを対比
+        var waitingTime = [[0,0], [0,0]]; //待ち時間表示を対比
+        var timerId = [["",""],["",""]]; // タイマーIDを対比　2 * 2  
+        
+		class Participant {
+			constructor(id, name, address, connectedTime, purpose, state, tableId) {
+				this.id = id;
+				this.name = name;
+				this.address = address;
+				this.connectedTime = connectedTime;
+				this.purpose = purpose;
+				this.state = state;
+				this.tableId = tableId;
+			}
+			get info() {
+				return [ { "id":this.id, "name": this.name, "address": this.address, "connectedTime": this.connectedTime, "purepose": this.purpose, "state": this.state  } ];
+			}
+		}
+
+        function setGlobalDate0( index ){
+             if( window.waitingTime[index][0] === 0 ){ 
+                let intervals  = window.intervals[index].split('/');
+                let localDateInterval =  intervals[0].toLocaleString();
+                window.waitingTime[index][0] = new Date(localDateInterval);   // 対比 
+             }
+        }
+
+	
+		function setGlobalDate1(index) {
+			if (window.waitingTime[index][1] === 0) { 
+				let intervals = window.intervals[index].split('/');
+				let localDateInterval = intervals[0].toLocaleString();
+				window.waitingTime[index][1] = new Date(localDateInterval);   // 対比 
+			}
+		}
+        
+		function startTimerJs( queueId, index ) {
+            let localSecond =  window.waitingTime[index][1].getSeconds();
+            window.waitingTime[index][1].setSeconds( localSecond  + 1 );
+			document.querySelector( '#waitingTime2' + queueId ).innerText = window.waitingTime[index][1].getSeconds() + "秒";   //秒;
+			window.timerId[ index ][1] = setTimeout( startTimerJs, 1000, queueId, index);
+		}
+
+		function clearTimerJs( queueId, index ) {
+			clearTimeout( window.timerId[ index ][1] );
+			document.querySelector( '#waitingTime2' + queueId ).innerText = 0;
+		}
+
+		var waitingCall    = 0; 
+		var customerArrary = [];//array
+		var ivrArray 	   = [];
+		var acdArray       = [];
+		var agentArray     = [];
+
+		var routingQueueIds   = ['b6e9f45f-28db-4bb8-a304-8705ffb75f43', ];
+        var routingQueueNames = [ "九州_キュー",  ];
+
+		function initializeRoutingQueuesTable( routingQueueIds , routingQueueNames ){
+			let divWaitingCalls  =  document.querySelector('#waitingCalls');
+			let table = document.createElement('table');
+			table.setAttribute("class", "table");
+			
+			let tr = document.createElement('tr');
+			let thName = document.createElement('th');
+			thName.innerHTML="キュー";
+
+			let thWaitingCalls = document.createElement('th');
+			thWaitingCalls.innerHTML = "待ち呼数";
+			
+
+			let thWaitingCalls_Timer2 = document.createElement('th');
+			thWaitingCalls_Timer2.innerHTML = "待ち時間(sec)";
+
+			tr.append(thName); tr.append(thWaitingCalls);  tr.append(thWaitingCalls_Timer2);
+			table.append(tr);
+            
+            for(let i=0; i < routingQueueIds.length; i++ ){
+                let queueId   = routingQueueIds[i];
+				let name = routingQueueNames[i];
+				let tr = document.createElement('tr');
+				tr.setAttribute("id", queueId );//queueId
+
+				let tdName = document.createElement('td');
+				let tdWaitingCalls = document.createElement('td');
+				
+				let tdWaitingCalls_Timer2 = document.createElement('td');
+
+				tdName.innerHTML = '<span class="queueName">' + name + '</span>';
+				tdWaitingCalls.innerHTML = '<span id="WaitingCalls-' + queueId  +'">0</span>';
+
+				tdWaitingCalls_Timer2.innerHTML = '<span id="waitingTime2'  + queueId + '">0</span>';
+
+				tr.append(tdName);
+				tr.append(tdWaitingCalls);
+
+				tr.append(tdWaitingCalls_Timer2);
+				table.append(tr);   
+            } 
+			divWaitingCalls.appendChild(table);
+			
+		}
+
+		
+
+		$(document).ready(() => {
+			// Authenticate with PureCloud
+			client.loginImplicitGrant(clientId, redirectUri)
+				.then(() => {
+					initializeRoutingQueuesTable( routingQueueIds , routingQueueNames );
+				    return  notificationsApi.postNotificationsChannels();
+				})
+				.then((channel1) => {   
+					console.log('channel1: ', channel1);
+					notificationChannel1 = channel1;
+					// Set up web socket
+					webSocket1 = new WebSocket(notificationChannel1.connectUri);
+					webSocket1.onmessage = handleNotification1;
+                    
+                    for(let i = 0; i < routingQueueIds.length ; i++){
+                        let queueId = routingQueueIds[i];
+                        let analyticsQueueObservations = `v2.analytics.queues.${queueId}.observations`;
+                        let body = [{ id: analyticsQueueObservations }];
+                        ChannelTopicEntityListing[i] = notificationsApi.postNotificationsChannelSubscriptions(notificationChannel1.id, body);						
+                    }
+                    
+					return ChannelTopicEntityListing;
+				})
+				.then((ChannelTopicEntityListing) => {
+					console.log('Channel1 subscriptions set successfully');
+					console.log('ChannelTopicEntityListing: ', ChannelTopicEntityListing);
+                    return  notificationsApi.postNotificationsChannels();
+				})
+				.then((channel2) => {   
+					console.log('channel2: ', channel2);
+					notificationChannel2 = channel2;
+					// Set up web socket
+					webSocket2 = new WebSocket(notificationChannel2.connectUri);
+					webSocket2.onmessage = handleNotification2;
+                    
+                    for(let i = 0; i < routingQueueIds.length ; i++){
+                        let queueId = routingQueueIds[i];
+                        let analyticsQueuesConversationsCalls = `v2.routing.queues.${queueId}.conversations.calls`;
+                        let body = [{ id: analyticsQueuesConversationsCalls }];
+                        ChannelTopicEntityListing2[i] = notificationsApi.postNotificationsChannelSubscriptions(notificationChannel2.id, body);						
+                    }
+                    
+					return ChannelTopicEntityListing2;
+				})
+				.then((ChannelTopicEntityListing2) => {
+					console.log('Channel2 subscriptions set successfully');
+					console.log('ChannelTopicEntityListing2: ', ChannelTopicEntityListing2);
+				
+				})	
+				.catch((err) => console.error(err));
+		});
+
+        function getIndex( queueId ){
+            let index=0;
+            for( let i=0 ; i < routingQueueIds.length; i++ ){
+                if( queueId === routingQueueIds[i] ){
+                   index = i; break;
+                }
+            }
+            return index;
+        }
+        
+        function setInterval(index, interval){
+            intervals[index] = interval;
+        }
+        
+		// v2.analytics.queues.{id}.observations
+		function handleNotification1(message) {
+			
+			const notification = JSON.parse(message.data);
+			console.log('Ignoring metadata: ', notification);
+			$('div#messagesQueueObservations').append($('<pre>').text(`${new Date().toLocaleTimeString()} - ${JSON.stringify(notification, null, 2)}`));
+			
+			if (notification.topicName.toLowerCase() === 'channel.metadata') {
+				// Heartbeat
+				console.info('Ignoring metadata: ', notification);
+				return;
+			}
+			
+            if ( notification.eventBody.group.mediaType ==  "voice" ){
+               for(let i =0; i < notification.eventBody.data.length ; i++ ){
+                   console.log(notification.eventBody.data[i]);
+                   for( let j=0; j < notification.eventBody.data[i].metrics.length　; j++ ){
+                       if ( notification.eventBody.data[i].metrics[j].metric == "oWaiting" ){
+						   waitingCall  =  notification.eventBody.data[i].metrics[j].stats.count;
+						   $('span#waitingCallsNumber').text(waitingCall + "件");
+                           let queueId = notification.eventBody.group.queueId;
+                           let interval  = notification.eventBody.data[i].interval;
+                           let index = getIndex( queueId );
+						   if(waitingCall == 1){
+                               setInterval( index , interval );
+                               setGlobalDate0( index );
+                               setGlobalDate1( index );
+							   startTimerJs( queueId, index );
+							
+						   }else{
+							   clearTimerJs( queueId, index );
+
+						   }
+                       }
+                   }
+               }
+            }
+		}
+
+        // v2.routing.queues.{id}.conversations.calls
+		function handleNotification2(message) {
+				// Parse notification string to a JSON object
+				const notification = JSON.parse(message.data);
+				// Log messages
+				$('div#messagesQueueCounversationsCalls').append($('<pre>').text(`${new Date().toLocaleTimeString()} - ${JSON.stringify(notification, null, 2)}`));
+
+				// Discard unwanted notifications
+				if (notification.topicName.toLowerCase() === 'channel.metadata') {
+					// Heartbeat
+					console.info('Ignoring metadata: ', notification);
+					return;
+				}
+		
+				let participants = notification.eventBody.participants;
+
+				for(let i=0 ; i < participants.length ; i++){
+					switch( participants[i].purpose ){
+						case "customer":
+							if (customerArrary.length <= 0) {
+								//if the index is 0, push customer info.	
+								//                                 (id,                  name,                address,                 connectedTime,                 purpose,                 state, tableId)				
+								customerArrary.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "customer-"+i.toString() ));
+							} else { 
+								//Is aleard stored in  customerArrary ? 
+								for( let j = 0; j < customerArrary.length; j++ ){
+									if ( customerArrary[j].id === participants[i].id ) {										
+										 customerArrary[j].state = participants[i].state;
+										 customerArrary[j].name = participants[i].name;
+										 customerArrary[j].address = participants[i].address;
+										 customerArrary[j].connectedTime = participants[i].connectedTime;
+										 customerArrary[j].purpose = participants[i].purpose;
+
+										break;
+									} else {
+										// add the new new one
+										customerArrary.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "customer-"+ (i+1).toString()));
+										break;
+									}
+								}
+							}
+							break;
+						case "ivr":
+							if (ivrArray.length <= 0) {
+								//if the index is 0, push customer info.					
+								ivrArray.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "ivr-" + i.toString() ));
+							} else {
+								//Is aleard stored in  ivrArray ? 
+								for (let j = 0; j < ivrArray.length; j++) {
+									if (ivrArray[j].id === participants[i].id) {
+										ivrArray[j].state = participants[i].state;
+        								ivrArray[j].name = participants[i].name;
+										ivrArray[j].address = participants[i].address;
+										ivrArray[j].connectedTime = participants[i].connectedTime;
+										ivrArray[j].purpose = participants[i].purpose;
+
+										break;
+									} else {
+										// add the new new one
+										ivrArray.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "ivr-" + (i + 1).toString()));
+										break;
+									}
+								}
+							}
+							break;
+						case "acd":
+							 if (acdArray.length <= 0) {
+								//if the index is 0, push customer info.					
+								acdArray.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "acd-" + i.toString()));
+							} else {
+								 //Is aleard stored in  acdArray ? 
+								 for (let j = 0; j < acdArray.length; j++) {
+									 if (acdArray[j].id === participants[i].id) {
+										 acdArray[j].state = participants[i].state;
+										 acdArray[j].name = participants[i].name;
+										 acdArray[j].address = participants[i].address;
+										 acdArray[j].connectedTime = participants[i].connectedTime;
+										 acdArray[j].purpose = participants[i].purpose;
+
+										 break;
+									 } else {
+										 // add the new new one
+										 acdArray.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "acd-" + (i + 1).toString()));
+										 break;
+									 }
+								 }
+							}
+							break;
+						
+						case "agent":
+						     if (agentArray.length <= 0) {
+								//if the index is 0, push customer info.					
+								agentArray.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "agent-" + i.toString()));
+							} else {
+								//Is aleard stored in  agentArray ? 
+								 for (let j = 0; j < agentArray.length; j++) {
+									 if (agentArray[j].id  === participants[i].id) {
+										 agentArray[j].state = participants[i].state;
+										 agentArray[j].name = participants[i].name;
+										 agentArray[j].address = participants[i].address;
+										 agentArray[j].connectedTime = participants[i].connectedTime;
+										 agentArray[j].purpose = participants[i].purpose;
+
+										 break;
+									 } else {
+										 // add the new new one
+										 agentArray.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "agent-" + (i + 1).toString()));
+										 break;
+									 }
+								 }
+							}
+							break;
+						}
+					}
+                 
+				if (customerArrary.length >= 1) {
+					printParticipantTable("customer", customerArrary);
+				}
+				if(ivrArray.length >= 1){
+					printParticipantTable("ivr", ivrArray);
+				}
+				
+				if(acdArray.length >= 1){
+					printParticipantTable("acd", acdArray);
+				}
+				
+				if(agentArray.length >= 1){
+					printParticipantTable("agent", agentArray);
+				}
+		}
+
+
+		function printParticipantTable( DivId,  participants ){
+			for (let i = 0; i < participants.length; i++){
+					// テーブルがあるかチェック
+					let table = document.querySelector('table#' + participants[i].tableId);
+					console.log(table);
+					if(table === null){
+						let table = document.createElement('table');
+						table.setAttribute("class", "table");
+						table.setAttribute("id", participants[i].tableId);
+
+						let trId = document.createElement('tr');
+						let tdTitleId = document.createElement('td');
+						tdTitleId.innerHTML = "ID";
+						let tdId = document.createElement('td');
+						tdId.innerHTML = participants[i].id;
+						tdId.className = "ID";
+						trId.append(tdTitleId); trId.append(tdId);
+
+						let trName = document.createElement('tr');
+						let tdTitleName = document.createElement('td');
+						tdTitleName.innerHTML = "Name";
+						let tdName = document.createElement('td');
+						tdName.innerHTML = participants[i].name;
+						tdName.className = "Name";
+						trName.append(tdTitleName); trName.append(tdName);
+
+						let trAddress = document.createElement('tr');
+						let tdTitleAddress = document.createElement('td');
+						tdTitleAddress.innerHTML = "Address";
+						let tdAddress = document.createElement('td');
+						tdAddress.innerHTML = participants[i].address;
+						tdAddress.className = "Address";
+						trAddress.append(tdTitleAddress); trAddress.append(tdAddress);
+
+						let trConnectedTime = document.createElement('tr');
+						let tdTitleConnectedTime = document.createElement('td');
+						tdTitleConnectedTime.innerHTML = "ConnectedTime";
+						let tdConnectedTime = document.createElement('td');
+						tdConnectedTime.innerHTML = participants[i].connectedTime;
+						tdConnectedTime.className = "ConnectedTime";
+						trConnectedTime.append(tdTitleConnectedTime); trConnectedTime.append(tdConnectedTime);
+
+						let trPurpose = document.createElement('tr');
+						let tdTitlePurpose = document.createElement('td');
+						tdTitlePurpose.innerHTML = "Purpose";
+						let tdPurepose = document.createElement('td');
+						tdPurepose.innerHTML = participants[i].purpose;
+						tdPurepose.className = "Purpose";
+						trPurpose.append(tdTitlePurpose); trPurpose.append(tdPurepose);
+
+						let trState = document.createElement('tr');
+						let tdTitleState = document.createElement('td');
+						tdTitleState.innerHTML = "State";
+						let tdState = document.createElement('td');
+						tdState.innerHTML = participants[i].state;
+						tdState.className = "State";
+						trState.append(tdTitleState); trState.append(tdState);
+
+						table.append(trId); table.append(trName); table.append(trAddress); table.append(trConnectedTime); table.append(trPurpose); table.append(trState);
+
+						let divParticipant = document.createElement('div');
+						divParticipant.setAttribute('id', "div" + participants[i].id);
+						divParticipant.append(table);
+
+						let target = '#' + DivId;
+						let div = document.querySelector(target);
+						div.append(divParticipant);
+
+					}else{				
+						 let trs = table.children;
+						 for (let j = 0; j < trs.length; j++) {
+						 	let tds = trs[j].children;
+						 	switch (tds[1].className.toUpperCase()) {
+						 		case "ID":
+						 			tds[1].innerHTML = participants[i].id;
+						 			break;
+						 		case "NAME":
+						 			tds[1].innerHTML = participants[i].name;
+						 			break;
+						 		case "ADDRESS":
+						 			tds[1].innerHTML = participants[i].address;
+						 			break;
+						 		case "CONNECTEDTIME":
+						 			tds[1].innerHTML = participants[i].connectedTime;
+						 			break;
+						 		case "PURPOSE":
+						 			tds[1].innerHTML = participants[i].purpose;
+						 			break;
+						 		case "STATE":
+						 			tds[1].innerHTML = participants[i].state;
+						 			break;
+						 	}
+						 }
+					}
+
+			}
+		}
+
+
+
+    </script>
+</head>
+<body>
+	<div class="container-fluid">
+		<div class="row">
+			<div class="col-sm-12">
+				<p>
+					See information on using the notification service at <a href='http://developer.mypurecloud.com/api/rest/v2/notifications/notification_service.html' target="_blank">http://developer.mypurecloud.com/api/rest/v2/notifications/notification_service.html</a>
+				</p>
+			</div>
+		</div>
+		<div class="row">
+        	<div class="col-sm">
+			<h1>待ち呼</h1>
+                <div id="waitingCalls">
+                </div>
+			</div>
+		</div>
+		<div class="row">
+			<div class="col-sm">
+				<h1>待ち呼詳細</h1>
+			</div>
+		</div>
+		<div class="row">
+        	<div class="col-sm-3">
+				<h2>Customer</h2>
+				<div id="customer"></div>
+			</div>
+			<div class="col-sm-3">
+				<h2>Ivr</h2>
+				<div id="ivr"></div>
+			</div>
+			<div class="col-sm-3">
+				<h2>Acd</h2>
+				<div id="acd"></div>
+			</div>
+			<div class="col-sm-3">
+				<h2>Agent</h2>
+				<div id="agent"></div>
+			</div>
+		</div>
+
+		<div class="row">
+			<div class="col-sm-6">
+				<h1>Messages</h1>
+				<div class="h5">[v2.analytics.queues.{id}.observations]</div>
+				<div id="messagesQueueObservations"></div>
+			</div>
+			<div class="col-sm-6">
+				<h1>Messages</h1>
+				<div class="h5">[v2.routing.queues.{id}.conversations.calls]</div>
+				<div id="messagesQueueCounversationsCalls"></div>
+			</div>
+		</div>
+		
+	</div>
+</body>
+</html>
