@@ -29,29 +29,38 @@
 		client.setPersistSettings(true, 'test_app');
 
 		// vars
-		var presences = {};
-		var analyticsQueueObservationsArray = [];
-		var routingQueuesConversationsCalls = '';
-		var routingQueuesConversations = '';
 		var webSocket1 = null;
-		var webSocket2 = null;
-		var notificationChannel, notificationChannel2, notificationChannel3;
-        
+        var webSocket2 = null;
+		var notificationChannel = [];
+        var notificationChannel2 = null;        
         var ChannelTopicEntityListing = [];
-		var ChannelTopicEntityListing2 = [];
-
-        var intervals  =  [0,0]; //インターバルを対比
-        var waitingTime = [[0,0], [0,0]]; //待ち時間表示を対比
-        var timerId = [["",""],["",""]]; // タイマーIDを対比　2 * 2  
-        
+        var ChannelTopicEntityListing2 = [];
+        var recievedTime = []; //インターバル退避
+        var oWaiting     = []; //oWaiting退避
+        var oWaitingTime = []; //
+        var timerId      = []; // タイマーID退避
+		var waitingCall  = [];
+		var customerArrary    = [];
+        var ivrArray          = [];
+        var acdArray          = [];
+        var agentArray        = [];
+		var routingQueueIds   = ['b6e9f45f-28db-4bb8-a304-8705ffb75f43'];
+		var routingQueueNames = ["九州_キュー"];
+		
 		class Participant {
-			constructor(id, name, address, connectedTime, purpose, state, tableId) {
-				this.id = id;
+			constructor(muted, confined, recording, recordingState, id, name, address, connectedTime, endTime,  purpose, state, direction, tableId) {
+				this.muted = muted;
+                this.confined = confined;
+                this.recording = recording;
+                this.recordingState = recordingState;
+                this.id = id;
 				this.name = name;
 				this.address = address;
 				this.connectedTime = connectedTime;
+				this.endTime = endTime;
 				this.purpose = purpose;
 				this.state = state;
+				this.direction = direction;
 				this.tableId = tableId;
 			}
 			get info() {
@@ -59,60 +68,17 @@
 			}
 		}
 
-        function setGlobalDate0( index ){
-             if( window.waitingTime[index][0] === 0 ){ 
-                let intervals  = window.intervals[index].split('/');
-                let localDateInterval =  intervals[0].toLocaleString();
-                window.waitingTime[index][0] = new Date(localDateInterval);   // 対比 
-             }
-        }
-
-	
-		function setGlobalDate1(index) {
-			if (window.waitingTime[index][1] === 0) { 
-				let intervals = window.intervals[index].split('/');
-				let localDateInterval = intervals[0].toLocaleString();
-				window.waitingTime[index][1] = new Date(localDateInterval);   // 対比 
-			}
-		}
-        
-		function startTimerJs( queueId, index ) {
-            let localSecond =  window.waitingTime[index][1].getSeconds();
-            window.waitingTime[index][1].setSeconds( localSecond  + 1 );
-			document.querySelector( '#waitingTime2' + queueId ).innerText = window.waitingTime[index][1].getSeconds() + "秒";   //秒;
-			window.timerId[ index ][1] = setTimeout( startTimerJs, 1000, queueId, index);
-		}
-
-		function clearTimerJs( queueId, index ) {
-			clearTimeout( window.timerId[ index ][1] );
-			document.querySelector( '#waitingTime2' + queueId ).innerText = 0;
-		}
-
-		var waitingCall    = 0; 
-		var customerArrary = [];//array
-		var ivrArray 	   = [];
-		var acdArray       = [];
-		var agentArray     = [];
-
-		var routingQueueIds   = ['b6e9f45f-28db-4bb8-a304-8705ffb75f43', ];
-        var routingQueueNames = [ "九州_キュー",  ];
-
-		function initializeRoutingQueuesTable( routingQueueIds , routingQueueNames ){
+		function createRoutingQueuesTable( routingQueueIds , routingQueueNames ){
 			let divWaitingCalls  =  document.querySelector('#waitingCalls');
 			let table = document.createElement('table');
-			table.setAttribute("class", "table");
-			
+			table.setAttribute("class", "table");			
 			let tr = document.createElement('tr');
 			let thName = document.createElement('th');
 			thName.innerHTML="キュー";
-
 			let thWaitingCalls = document.createElement('th');
 			thWaitingCalls.innerHTML = "待ち呼数";
-			
-
 			let thWaitingCalls_Timer2 = document.createElement('th');
 			thWaitingCalls_Timer2.innerHTML = "待ち時間(sec)";
-
 			tr.append(thName); tr.append(thWaitingCalls);  tr.append(thWaitingCalls_Timer2);
 			table.append(tr);
             
@@ -120,35 +86,35 @@
                 let queueId   = routingQueueIds[i];
 				let name = routingQueueNames[i];
 				let tr = document.createElement('tr');
-				tr.setAttribute("id", queueId );//queueId
-
+				tr.setAttribute("id", "row-"+i );
 				let tdName = document.createElement('td');
 				let tdWaitingCalls = document.createElement('td');
-				
 				let tdWaitingCalls_Timer2 = document.createElement('td');
-
 				tdName.innerHTML = '<span class="queueName">' + name + '</span>';
-				tdWaitingCalls.innerHTML = '<span id="WaitingCalls-' + queueId  +'">0</span>';
-
-				tdWaitingCalls_Timer2.innerHTML = '<span id="waitingTime2'  + queueId + '">0</span>';
+				tdWaitingCalls.innerHTML = '<span id="WaitingCalls-' + i  +'">0</span>';
+				tdWaitingCalls_Timer2.innerHTML = '<span id="oWaitingTime-'  + i + '">0</span>';
 
 				tr.append(tdName);
 				tr.append(tdWaitingCalls);
-
 				tr.append(tdWaitingCalls_Timer2);
 				table.append(tr);   
             } 
 			divWaitingCalls.appendChild(table);
-			
 		}
 
-		
-
 		$(document).ready(() => {
+            for(let i = 0; i < routingQueueIds.length; i++){
+                window.recievedTime[i]    =  new Array();// [0][0] => undefined
+                window.oWaiting[i]     =  new Array();
+                window.oWaitingTime[i]  =  new Array();
+                // window.timerId[i]      =  new Array();
+                window.waitingCall[i]  =  new Array();
+            }
+        
 			// Authenticate with PureCloud
 			client.loginImplicitGrant(clientId, redirectUri)
 				.then(() => {
-					initializeRoutingQueuesTable( routingQueueIds , routingQueueNames );
+					createRoutingQueuesTable( routingQueueIds , routingQueueNames );
 				    return  notificationsApi.postNotificationsChannels();
 				})
 				.then((channel1) => {   
@@ -196,7 +162,8 @@
 				.catch((err) => console.error(err));
 		});
 
-        function getIndex( queueId ){
+        // queueIdからrow indexを取得
+        function getRowIndex( queueId ){
             let index=0;
             for( let i=0 ; i < routingQueueIds.length; i++ ){
                 if( queueId === routingQueueIds[i] ){
@@ -206,13 +173,92 @@
             return index;
         }
         
-        function setInterval(index, interval){
-            intervals[index] = interval;
+        function setRecievedTime(rowindex, interval){
+            let from = interval.split('/');
+            window.recievedTime[rowindex].push( new Date( from[0].toLocaleString()) );
+            console.log("window.recievedTime[rowindex]");
+            console.log(window.recievedTime[rowindex]);
         }
         
+        function setWaitingTime( rowIndex ){
+            console.log("setWaitingTime");
+            console.log("rowIndex " + rowIndex);
+            let rowData = window.recievedTime[rowIndex];
+            // console.log("rowData " + rowData );
+ 
+        	for(let colIndex=0; colIndex < rowData.length; colIndex++){
+               //時間差計算
+               console.log(rowIndex);
+               console.log(colIndex);
+               
+               let recivedTime = rowData[colIndex];
+               let now = new Date();
+               let diffTime = now.getTime() - recivedTime.getTime();
+               let diffSecond = Math.floor( diffTime / (1000) );
+               console.log(" diffSecond ");
+               console.log( diffSecond );
+               if(window.oWaitingTime[rowIndex][colIndex] === undefined){
+                   window.oWaitingTime[rowIndex].push(diffSecond);
+               }else{
+                   window.oWaitingTime[rowIndex][colIndex] = diffSecond;
+               }                   
+        	}
+       }
+
+        function startTimerJs( rowIndex ) {
+            console.log("startTimerJs");
+            console.log("rowIndex" + rowIndex);
+    		setWaitingTime( rowIndex );
+    		//表示は、一番最初の呼
+            document.querySelector( '#oWaitingTime-' + rowIndex ).innerText = window.oWaitingTime[rowIndex][0] + "秒";
+            window.timerId[ rowIndex ] = setTimeout( startTimerJs, 1000, rowIndex);
+		}
+
+		function clearTimerJs( rowIndex ) {
+			clearTimeout( window.timerId[ rowIndex ] );
+			document.querySelector( '#oWaitingTime-' + rowIndex ).innerText = 0;
+		}
+
+        function setWaitinCallNumber( rowIndex , callNumber ){
+            document.querySelector( '#WaitingCalls-' + rowIndex ).innerText = callNumber ;
+            
+        }
+        
+		function setGlobalDate1(index) {
+			if (window.oWaitingTime[index][1] === 0) { 
+				let recievedTime = window.recievedTime[index].split('/');
+				// let localDateInterval = recievedTime[0].toLocaleString();
+				// window.oWaitingTime[index][1] = new Date(localDateInterval);
+				window.oWaitingTime[index][1] = toLocalDateTime(recievedTime[0])
+			}
+		}
+        
+		function toLocalDateTime( dateObject ){
+			let localDateTime = dateObject.toLocaleString();
+			console.log(localDateTime);
+			return new Date( localDateTime ) ;
+		}
+
+		function toTimeFormat( dateObject ){
+			let year  = dateObject.getFullYear().toString();
+			let month = dateObject.getMonth() + 1;
+			let date  = dateObject.getDate();
+
+			let hours = dateObject.getHours();
+			let minutes = dateObject.getMinutes();
+			let seconds = dateObject.getSeconds();
+
+			let result = year + "-" + month + "-" + date  + " " + hours + ":" + minutes + ":" + seconds;
+
+
+			console.log(result);
+
+			return result;
+
+		}
+
 		// v2.analytics.queues.{id}.observations
 		function handleNotification1(message) {
-			
 			const notification = JSON.parse(message.data);
 			console.log('Ignoring metadata: ', notification);
 			$('div#messagesQueueObservations').append($('<pre>').text(`${new Date().toLocaleTimeString()} - ${JSON.stringify(notification, null, 2)}`));
@@ -224,29 +270,61 @@
 			}
 			
             if ( notification.eventBody.group.mediaType ==  "voice" ){
-               for(let i =0; i < notification.eventBody.data.length ; i++ ){
+               for( let i =0; i < notification.eventBody.data.length; i++ ){
                    console.log(notification.eventBody.data[i]);
                    for( let j=0; j < notification.eventBody.data[i].metrics.length　; j++ ){
-                       if ( notification.eventBody.data[i].metrics[j].metric == "oWaiting" ){
-						   waitingCall  =  notification.eventBody.data[i].metrics[j].stats.count;
-						   $('span#waitingCallsNumber').text(waitingCall + "件");
+                       if( notification.eventBody.data[i].metrics[j].metric == "oWaiting" ){
                            let queueId = notification.eventBody.group.queueId;
+                           let rowIndex = getRowIndex( queueId );
+                           
                            let interval  = notification.eventBody.data[i].interval;
-                           let index = getIndex( queueId );
-						   if(waitingCall == 1){
-                               setInterval( index , interval );
-                               setGlobalDate0( index );
-                               setGlobalDate1( index );
-							   startTimerJs( queueId, index );
-							
+                           let waitingCallNumber  =  notification.eventBody.data[i].metrics[j].stats.count;
+                          
+                           setWaitinCallNumber( rowIndex, waitingCallNumber );
+						   if(waitingCallNumber >= 1){
+                               // setGlobalDate1( rowIndex );
+                               setRecievedTime( rowIndex, interval );
+							   startTimerJs( rowIndex );
+                               
 						   }else{
-							   clearTimerJs( queueId, index );
+							   clearTimerJs( rowIndex );
 
 						   }
                        }
                    }
                }
             }
+		}
+
+		function setParticipantValues( array, participant, i ){
+			array.push( new Participant(participant.muted, 
+										participant.confined, 
+										participant.recording, 
+										participant.recordingState, 
+										participant.id, 
+										participant.name, 
+										participant.address, 
+										participant.connectedTime, 
+										participant.endTime,
+										participant.purpose,
+										participant.state, 
+										participant.direction,
+										participant.purpose + "-" + i.toString()) );
+		}
+
+		function updateParticipantValues( array, participant){
+			array.muted          = participant.muted;
+			array.confined       = participant.confined;
+			array.recording      = participant.recording;
+			array.recordingState = participant.recordingState;
+			array.name 			= participant.name;
+			array.address 		= participant.address;
+			array.connectedTime = participant.connectedTime;
+			array.endTime = participant.endTime;
+			array.purpose = participant.purpose;
+    		array.state   = participant.state;
+    		array.direction   = participant.direction;
+			
 		}
 
         // v2.routing.queues.{id}.conversations.calls
@@ -266,26 +344,17 @@
 				let participants = notification.eventBody.participants;
 
 				for(let i=0 ; i < participants.length ; i++){
-					switch( participants[i].purpose ){
+					switch( participants[i].purpose.toLowerCase() ){
 						case "customer":
 							if (customerArrary.length <= 0) {
-								//if the index is 0, push customer info.	
-								//                                 (id,                  name,                address,                 connectedTime,                 purpose,                 state, tableId)				
-								customerArrary.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "customer-"+i.toString() ));
+								setParticipantValues( customerArrary, participants[i], i );
 							} else { 
-								//Is aleard stored in  customerArrary ? 
 								for( let j = 0; j < customerArrary.length; j++ ){
 									if ( customerArrary[j].id === participants[i].id ) {										
-										 customerArrary[j].state = participants[i].state;
-										 customerArrary[j].name = participants[i].name;
-										 customerArrary[j].address = participants[i].address;
-										 customerArrary[j].connectedTime = participants[i].connectedTime;
-										 customerArrary[j].purpose = participants[i].purpose;
-
+										updateParticipantValues( customerArrary[j], participants[i] );
 										break;
 									} else {
-										// add the new new one
-										customerArrary.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "customer-"+ (i+1).toString()));
+										setParticipantValues( customerArrary, participants[i], i+1 );
 										break;
 									}
 								}
@@ -293,45 +362,29 @@
 							break;
 						case "ivr":
 							if (ivrArray.length <= 0) {
-								//if the index is 0, push customer info.					
-								ivrArray.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "ivr-" + i.toString() ));
+								setParticipantValues(ivrArray, participants[i], i);
 							} else {
-								//Is aleard stored in  ivrArray ? 
 								for (let j = 0; j < ivrArray.length; j++) {
 									if (ivrArray[j].id === participants[i].id) {
-										ivrArray[j].state = participants[i].state;
-        								ivrArray[j].name = participants[i].name;
-										ivrArray[j].address = participants[i].address;
-										ivrArray[j].connectedTime = participants[i].connectedTime;
-										ivrArray[j].purpose = participants[i].purpose;
-
+										updateParticipantValues(ivrArray[j], participants[i]);
 										break;
 									} else {
-										// add the new new one
-										ivrArray.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "ivr-" + (i + 1).toString()));
+										setParticipantValues(ivrArray, participants[i], i + 1);
 										break;
 									}
 								}
 							}
 							break;
 						case "acd":
-							 if (acdArray.length <= 0) {
-								//if the index is 0, push customer info.					
-								acdArray.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "acd-" + i.toString()));
+							if (acdArray.length <= 0) {
+								setParticipantValues(acdArray, participants[i], i);
 							} else {
-								 //Is aleard stored in  acdArray ? 
 								 for (let j = 0; j < acdArray.length; j++) {
 									 if (acdArray[j].id === participants[i].id) {
-										 acdArray[j].state = participants[i].state;
-										 acdArray[j].name = participants[i].name;
-										 acdArray[j].address = participants[i].address;
-										 acdArray[j].connectedTime = participants[i].connectedTime;
-										 acdArray[j].purpose = participants[i].purpose;
-
+										 updateParticipantValues(acdArray[j], participants[i]);
 										 break;
 									 } else {
-										 // add the new new one
-										 acdArray.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "acd-" + (i + 1).toString()));
+										 setParticipantValues(acdArray, participants[i], i + 1);
 										 break;
 									 }
 								 }
@@ -339,32 +392,30 @@
 							break;
 						
 						case "agent":
-						     if (agentArray.length <= 0) {
-								//if the index is 0, push customer info.					
-								agentArray.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "agent-" + i.toString()));
+						    if (agentArray.length <= 0) {
+								setParticipantValues(agentArray, participants[i], i);
 							} else {
-								//Is aleard stored in  agentArray ? 
 								 for (let j = 0; j < agentArray.length; j++) {
 									 if (agentArray[j].id  === participants[i].id) {
-										 agentArray[j].state = participants[i].state;
-										 agentArray[j].name = participants[i].name;
-										 agentArray[j].address = participants[i].address;
-										 agentArray[j].connectedTime = participants[i].connectedTime;
-										 agentArray[j].purpose = participants[i].purpose;
-
-										 break;
+										updateParticipantValues(agentArray[j], participants[i]);
+										break;
 									 } else {
-										 // add the new new one
-										 agentArray.push(new Participant(participants[i].id, participants[i].name, participants[i].address, participants[i].connectedTime, participants[i].purpose, participants[i].state, "agent-" + (i + 1).toString()));
-										 break;
+										setParticipantValues(agentArray, participants[i], i + 1);
+										break;
 									 }
 								 }
 							}
 							break;
 						}
-					}
-                 
-				if (customerArrary.length >= 1) {
+				}
+                console.log("------------------------------------------------");
+				customerArrary.forEach((x)=>{ console.log(x); });
+				ivrArray.forEach((x) => { console.log(x); });
+				acdArray.forEach((x) => { console.log(x); });
+				agentArray.forEach((x) => { console.log(x); });
+				console.log("------------------------------------------------");
+
+				if(customerArrary.length >= 1) {
 					printParticipantTable("customer", customerArrary);
 				}
 				if(ivrArray.length >= 1){
@@ -398,6 +449,7 @@
 						tdId.innerHTML = participants[i].id;
 						tdId.className = "ID";
 						trId.append(tdTitleId); trId.append(tdId);
+						table.append(trId);
 
 						let trName = document.createElement('tr');
 						let tdTitleName = document.createElement('td');
@@ -406,6 +458,7 @@
 						tdName.innerHTML = participants[i].name;
 						tdName.className = "Name";
 						trName.append(tdTitleName); trName.append(tdName);
+						table.append(trName);
 
 						let trAddress = document.createElement('tr');
 						let tdTitleAddress = document.createElement('td');
@@ -414,14 +467,25 @@
 						tdAddress.innerHTML = participants[i].address;
 						tdAddress.className = "Address";
 						trAddress.append(tdTitleAddress); trAddress.append(tdAddress);
+						table.append(trAddress);
 
 						let trConnectedTime = document.createElement('tr');
 						let tdTitleConnectedTime = document.createElement('td');
-						tdTitleConnectedTime.innerHTML = "ConnectedTime";
+						tdTitleConnectedTime.innerHTML = "ConnectedTime[日本時間]";
 						let tdConnectedTime = document.createElement('td');
-						tdConnectedTime.innerHTML = participants[i].connectedTime;
+						tdConnectedTime.innerHTML = toTimeFormat(toLocalDateTime( new Date(participants[i].connectedTime) ));
 						tdConnectedTime.className = "ConnectedTime";
 						trConnectedTime.append(tdTitleConnectedTime); trConnectedTime.append(tdConnectedTime);
+						table.append(trConnectedTime);
+
+						let trEndTime = document.createElement('tr');
+						let tdTitleEndTime = document.createElement('td');
+						tdTitleEndTime.innerHTML = "EndTime[日本時間]";
+						let tdEndTime = document.createElement('td');
+						tdEndTime.innerHTML = participants[i].endTime === undefined ? "" : participants[i].endTime;
+						tdEndTime.className = "EndTime";
+						trEndTime.append(tdTitleEndTime); trEndTime.append(tdEndTime);
+						table.append(trEndTime);
 
 						let trPurpose = document.createElement('tr');
 						let tdTitlePurpose = document.createElement('td');
@@ -430,6 +494,7 @@
 						tdPurepose.innerHTML = participants[i].purpose;
 						tdPurepose.className = "Purpose";
 						trPurpose.append(tdTitlePurpose); trPurpose.append(tdPurepose);
+						table.append(trPurpose);
 
 						let trState = document.createElement('tr');
 						let tdTitleState = document.createElement('td');
@@ -438,8 +503,8 @@
 						tdState.innerHTML = participants[i].state;
 						tdState.className = "State";
 						trState.append(tdTitleState); trState.append(tdState);
-
-						table.append(trId); table.append(trName); table.append(trAddress); table.append(trConnectedTime); table.append(trPurpose); table.append(trState);
+						table.append(trState);
+						     
 
 						let divParticipant = document.createElement('div');
 						divParticipant.setAttribute('id', "div" + participants[i].id);
@@ -453,23 +518,27 @@
 						 let trs = table.children;
 						 for (let j = 0; j < trs.length; j++) {
 						 	let tds = trs[j].children;
-						 	switch (tds[1].className.toUpperCase()) {
-						 		case "ID":
+						 	switch (tds[1].className.toLowerCase()) {
+						 		case "id":
 						 			tds[1].innerHTML = participants[i].id;
 						 			break;
-						 		case "NAME":
+						 		case "name":
 						 			tds[1].innerHTML = participants[i].name;
 						 			break;
-						 		case "ADDRESS":
+						 		case "address":
 						 			tds[1].innerHTML = participants[i].address;
 						 			break;
-						 		case "CONNECTEDTIME":
-						 			tds[1].innerHTML = participants[i].connectedTime;
+						 		case "connectedtime":
+						 			tds[1].innerHTML = toTimeFormat(toLocalDateTime( new Date( participants[i].connectedTime )));
 						 			break;
-						 		case "PURPOSE":
+								case "endtime":
+									  tds[1].innerHTML = participants[i].endTime === undefined ? "" : toTimeFormat(toLocalDateTime( new Date (participants[i].endTime) ));
+									  break;	 
+						 		case "purpose":
 						 			tds[1].innerHTML = participants[i].purpose;
 						 			break;
-						 		case "STATE":
+
+						 		case "state":
 						 			tds[1].innerHTML = participants[i].state;
 						 			break;
 						 	}
