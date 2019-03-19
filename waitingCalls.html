@@ -2,7 +2,7 @@
 <html>
 <head>
 	<meta charset="utf-8">
-	<title>待ち呼調査用</title>
+	<title>待ち呼調査用アプリ</title>
 	
 	<link href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-WskhaSGFgHYWDcbwN70/dfYBj47jz9qbsMId/iRN3ewGhXQFZCSftd1LZCfmhktB" crossorigin="anonymous">
 
@@ -16,8 +16,8 @@
 	<script src="https://sdk-cdn.mypurecloud.com/javascript/27.0.0/purecloud-platform-client-v2.min.js"></script>
 	<script type="text/javascript">
 		// Auth2
-		const clientId = 'c2fec972-d648-4597-8ded-13198f644dee';
-		const redirectUri = "http://localhost/purecloud/purecloud_waiting.html";
+		const clientId = 'XXXXXXXXXXXXXXXXXXX';
+		const redirectUri = "http://localhost/purecloud/waitingCalls.html";
 
 		// Set purecloud objects
 		const platformClient = require('platformClient');
@@ -44,11 +44,11 @@
         var ivrArray          = [];
         var acdArray          = [];
         var agentArray        = [];
-		var routingQueueIds   = ['b6e9f45f-28db-4bb8-a304-8705ffb75f43'];
-		var routingQueueNames = ["九州_キュー"];
+		var routingQueueIds   = ['11111', '22262'];
+		var routingQueueNames = ['XXキュー', 'YYキュー'];
 		
 		class Participant {
-			constructor(muted, confined, recording, recordingState, id, name, address, connectedTime, endTime,  purpose, state, direction, tableId) {
+			constructor(muted, confined, recording, recordingState, id, name, address, connectedTime, endTime,  purpose, state, direction, user,  tableId) {
 				this.muted = muted;
                 this.confined = confined;
                 this.recording = recording;
@@ -61,6 +61,7 @@
 				this.purpose = purpose;
 				this.state = state;
 				this.direction = direction;
+				this.user = user;
 				this.tableId = tableId;
 			}
 			get info() {
@@ -78,7 +79,7 @@
 			let thWaitingCalls = document.createElement('th');
 			thWaitingCalls.innerHTML = "待ち呼数";
 			let thWaitingCalls_Timer2 = document.createElement('th');
-			thWaitingCalls_Timer2.innerHTML = "待ち時間(sec)";
+			thWaitingCalls_Timer2.innerHTML = "最大の待ち時間(sec)";
 			tr.append(thName); tr.append(thWaitingCalls);  tr.append(thWaitingCalls_Timer2);
 			table.append(tr);
             
@@ -260,15 +261,15 @@
 		// v2.analytics.queues.{id}.observations
 		function handleNotification1(message) {
 			const notification = JSON.parse(message.data);
-			console.log('Ignoring metadata: ', notification);
-			$('div#messagesQueueObservations').append($('<pre>').text(`${new Date().toLocaleTimeString()} - ${JSON.stringify(notification, null, 2)}`));
 			
 			if (notification.topicName.toLowerCase() === 'channel.metadata') {
 				// Heartbeat
 				console.info('Ignoring metadata: ', notification);
 				return;
 			}
-			
+
+			$('div#messagesQueueObservations').append($('<pre>').text(`${new Date().toLocaleTimeString()} - ${JSON.stringify(notification, null, 2)}`));
+				
             if ( notification.eventBody.group.mediaType ==  "voice" ){
                for( let i =0; i < notification.eventBody.data.length; i++ ){
                    console.log(notification.eventBody.data[i]);
@@ -309,6 +310,7 @@
 										participant.purpose,
 										participant.state, 
 										participant.direction,
+										participant.user,
 										participant.purpose + "-" + i.toString()) );
 		}
 
@@ -324,6 +326,7 @@
 			array.purpose = participant.purpose;
     		array.state   = participant.state;
     		array.direction   = participant.direction;
+    		array.user   = participant.user;
 			
 		}
 
@@ -331,9 +334,7 @@
 		function handleNotification2(message) {
 				// Parse notification string to a JSON object
 				const notification = JSON.parse(message.data);
-				// Log messages
-				$('div#messagesQueueCounversationsCalls').append($('<pre>').text(`${new Date().toLocaleTimeString()} - ${JSON.stringify(notification, null, 2)}`));
-
+				
 				// Discard unwanted notifications
 				if (notification.topicName.toLowerCase() === 'channel.metadata') {
 					// Heartbeat
@@ -341,6 +342,9 @@
 					return;
 				}
 		
+				// Log messages
+				$('div#messagesQueueCounversationsCalls').append($('<pre>').text(`${new Date().toLocaleTimeString()} - ${JSON.stringify(notification, null, 2)}`));
+
 				let participants = notification.eventBody.participants;
 
 				for(let i=0 ; i < participants.length ; i++){
@@ -390,7 +394,6 @@
 								 }
 							}
 							break;
-						
 						case "agent":
 						    if (agentArray.length <= 0) {
 								setParticipantValues(agentArray, participants[i], i);
@@ -433,6 +436,7 @@
 
 
 		function printParticipantTable( DivId,  participants ){
+            console.log("participants " + participants);
 			for (let i = 0; i < participants.length; i++){
 					// テーブルがあるかチェック
 					let table = document.querySelector('table#' + participants[i].tableId);
@@ -440,6 +444,7 @@
 					if(table === null){
 						let table = document.createElement('table');
 						table.setAttribute("class", "table");
+                        table.setAttribute("class",  participants[i].purpose);
 						table.setAttribute("id", participants[i].tableId);
 
 						let trId = document.createElement('tr');
@@ -450,16 +455,20 @@
 						tdId.className = "ID";
 						trId.append(tdTitleId); trId.append(tdId);
 						table.append(trId);
-
-						let trName = document.createElement('tr');
-						let tdTitleName = document.createElement('td');
-						tdTitleName.innerHTML = "Name";
-						let tdName = document.createElement('td');
-						tdName.innerHTML = participants[i].name;
-						tdName.className = "Name";
-						trName.append(tdTitleName); trName.append(tdName);
-						table.append(trName);
-
+                        
+                        if(participants[i].purpose !== 'agent'){
+                            let trName = document.createElement('tr');
+                            let tdTitleName = document.createElement('td');
+                            tdTitleName.innerHTML = "Name";
+                            let tdName = document.createElement('td');
+                            tdName.innerHTML = participants[i].name;
+                            tdName.className = "Name";
+                            trName.append(tdTitleName); trName.append(tdName);
+                            table.append(trName);
+        
+                            
+                        }
+						
 						let trAddress = document.createElement('tr');
 						let tdTitleAddress = document.createElement('td');
 						tdTitleAddress.innerHTML = "Address";
@@ -468,12 +477,14 @@
 						tdAddress.className = "Address";
 						trAddress.append(tdTitleAddress); trAddress.append(tdAddress);
 						table.append(trAddress);
+                        
 
+                        
 						let trConnectedTime = document.createElement('tr');
 						let tdTitleConnectedTime = document.createElement('td');
 						tdTitleConnectedTime.innerHTML = "ConnectedTime[日本時間]";
 						let tdConnectedTime = document.createElement('td');
-						tdConnectedTime.innerHTML = toTimeFormat(toLocalDateTime( new Date(participants[i].connectedTime) ));
+						tdConnectedTime.innerHTML = participants[i].connectedTime === undefined ? "" : toTimeFormat(toLocalDateTime( new Date(participants[i].connectedTime) ));
 						tdConnectedTime.className = "ConnectedTime";
 						trConnectedTime.append(tdTitleConnectedTime); trConnectedTime.append(tdConnectedTime);
 						table.append(trConnectedTime);
@@ -482,7 +493,7 @@
 						let tdTitleEndTime = document.createElement('td');
 						tdTitleEndTime.innerHTML = "EndTime[日本時間]";
 						let tdEndTime = document.createElement('td');
-						tdEndTime.innerHTML = participants[i].endTime === undefined ? "" : participants[i].endTime;
+						tdEndTime.innerHTML = participants[i].endTime === undefined ?  "" :  toTimeFormat(toLocalDateTime( new Date( participants[i].endTime )))
 						tdEndTime.className = "EndTime";
 						trEndTime.append(tdTitleEndTime); trEndTime.append(tdEndTime);
 						table.append(trEndTime);
@@ -500,19 +511,37 @@
 						let tdTitleState = document.createElement('td');
 						tdTitleState.innerHTML = "State";
 						let tdState = document.createElement('td');
+
 						tdState.innerHTML = participants[i].state;
 						tdState.className = "State";
 						trState.append(tdTitleState); trState.append(tdState);
 						table.append(trState);
-						     
-
+						
+                        if(participants[i].purpose == 'agent'){
+                            let trUser = document.createElement('tr');
+                            let tdTitleUser = document.createElement('td');
+                            tdTitleUser.innerHTML = "User";
+                            let tdUser = document.createElement('td');
+                            tdUser.innerHTML = participants[i].user.id;
+                            tdUser.className = "User";
+                            trUser.append(tdTitleUser); trUser.append(tdUser);
+                            table.append(trUser);
+                        }
+                        
 						let divParticipant = document.createElement('div');
-						divParticipant.setAttribute('id', "div" + participants[i].id);
+                        						
+						let re = /[-]/gi;
+                        let uniqueID = participants[i].id.replace(re, "");
+
+						// divParticipant.setAttribute('id', "div" + participants[i].id);
+						divParticipant.setAttribute('id', "div" + uniqueID);
 						divParticipant.append(table);
 
 						let target = '#' + DivId;
 						let div = document.querySelector(target);
+
 						div.append(divParticipant);
+                        
 
 					}else{				
 						 let trs = table.children;
@@ -520,27 +549,45 @@
 						 	let tds = trs[j].children;
 						 	switch (tds[1].className.toLowerCase()) {
 						 		case "id":
-						 			tds[1].innerHTML = participants[i].id;
+						 			tds[1].innerHTML = ( tds[1].innerHTML == participants[i].id) ?  participants[i].id :  '<span class="text-danger">' +  participants[i].id + '</span>';
 						 			break;
 						 		case "name":
-						 			tds[1].innerHTML = participants[i].name;
+                                    if(participants[i].purpose !== 'agent'){
+                                        tds[1].innerHTML = ( tds[1].innerHTML == participants[i].name) ? participants[i].name :  '<span class="text-danger">' +  participants[i].name + '</span>';
+                                    }
 						 			break;
 						 		case "address":
-						 			tds[1].innerHTML = participants[i].address;
+						 			tds[1].innerHTML = ( tds[1].innerHTML == participants[i].address) ? participants[i].address :'<span class="text-danger">' + participants[i].address  + '</span>';
 						 			break;
 						 		case "connectedtime":
-						 			tds[1].innerHTML = toTimeFormat(toLocalDateTime( new Date( participants[i].connectedTime )));
+                                    if(participants[i].connectedTime === undefined ){
+                                            tds[1].innerHTML = participants[i].connectedTime === undefined ? "" : toTimeFormat(toLocalDateTime( new Date (participants[i].connectedTime) ));
+                                    }else{
+                                        tds[1].innerHTML = ( tds[1].innerHTML == toTimeFormat(toLocalDateTime( new Date( participants[i].connectedTime ))) ) ? toTimeFormat(toLocalDateTime( new Date( participants[i].connectedTime ))) : '<span class="text-danger">' + toTimeFormat(toLocalDateTime( new Date( participants[i].connectedTime )))  + '</span>';
+                                    }
 						 			break;
 								case "endtime":
-									  tds[1].innerHTML = participants[i].endTime === undefined ? "" : toTimeFormat(toLocalDateTime( new Date (participants[i].endTime) ));
-									  break;	 
+                                    if(participants[i].endTime === undefined ){
+                                      tds[1].innerHTML = participants[i].endTime === undefined ? "" : toTimeFormat(toLocalDateTime( new Date (participants[i].endTime) ));
+                                    }else{
+                                      tds[1].innerHTML = ( tds[1].innerHTML == toTimeFormat(toLocalDateTime( new Date( participants[i].endTime ))) ) ? toTimeFormat(toLocalDateTime( new Date( participants[i].endTime ))) : '<span class="text-danger">' + toTimeFormat(toLocalDateTime( new Date( participants[i].endTime )))  + '</span>';
+                                    }
+									
+									 break;	 
 						 		case "purpose":
-						 			tds[1].innerHTML = participants[i].purpose;
+						 			tds[1].innerHTML =  ( tds[1].innerHTML == participants[i].purpose ) ?  participants[i].purpose : '<span class="text-danger">' + participants[i].purpose + '</spam>';
 						 			break;
-
 						 		case "state":
-						 			tds[1].innerHTML = participants[i].state;
+						 			tds[1].innerHTML = ( tds[1].innerHTML == participants[i].state ) ? participants[i].state : '<span class="text-danger">' + participants[i].state+ '</spam>';
 						 			break;
+                                    
+                                case "user":
+                                    if(participants[i].purpose == 'agent'){
+                                        tds[1].innerHTML = ( tds[1].innerHTML == participants[i].user.id ) ? participants[i].user.id : '<span class="text-danger">' + participants[i].user.id+ '</spam>';
+                                    }
+            
+                                    break;                                    
+                                
 						 	}
 						 }
 					}
@@ -555,10 +602,10 @@
 <body>
 	<div class="container-fluid">
 		<div class="row">
-			<div class="col-sm-12">
-				<p>
-					See information on using the notification service at <a href='http://developer.mypurecloud.com/api/rest/v2/notifications/notification_service.html' target="_blank">http://developer.mypurecloud.com/api/rest/v2/notifications/notification_service.html</a>
-				</p>
+			<div class="col-sm">
+				<h1>待ち呼調査用アプリ</h1>
+                <p>表示項目を待ち呼の設計に関係ありそうなものに絞って表示。（見たい項目があれば追加するので教えてください。）</p>
+				<p>ParticipantのIdが同じものは、値を更新して表示。</p>
 			</div>
 		</div>
 		<div class="row">
@@ -570,9 +617,10 @@
 		</div>
 		<div class="row">
 			<div class="col-sm">
-				<h1>待ち呼詳細</h1>
+				<h1>待ち呼詳細（ParticipantのIDが同じものは更新表示）</h1>
 			</div>
 		</div>
+
 		<div class="row">
         	<div class="col-sm-3">
 				<h2>Customer</h2>
@@ -592,6 +640,11 @@
 			</div>
 		</div>
 
+        <div class="row">
+			<div class="col-sm">
+				<h1>WebSocketの生メッセージ</h1>
+			</div>
+		</div>
 		<div class="row">
 			<div class="col-sm-6">
 				<h1>Messages</h1>
